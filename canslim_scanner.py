@@ -380,6 +380,9 @@ class CANSLIMScanner:
             print("  [M] Fetching SPY market data...")
             spy = yf.Ticker("SPY")
             self._spy_history = spy.history(period="2y")
+            if self._spy_history.index.tz is not None:
+                self._spy_history.index = self._spy_history.index.tz_localize(None)
+            self._spy_history = self._spy_history.dropna(subset=["Close"])
             self._spy_ticker  = spy
         return self._spy_ticker, self._spy_history
 
@@ -405,6 +408,11 @@ class CANSLIMScanner:
             if history.empty:
                 output["error"] = f"No price history for {symbol}"
                 return output
+
+            # Normalize timezone-aware index and drop incomplete rows
+            if history.index.tz is not None:
+                history.index = history.index.tz_localize(None)
+            history = history.dropna(subset=["Close"])
 
             _, spy_history = self._get_spy_data()
 
