@@ -525,16 +525,25 @@ class CANSLIMScanner:
 # ─────────────────────────────────────────────
 
 WATCHLISTS = {
-    "mega_cap_tech": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
-    "financials":    ["JPM", "BAC", "GS", "MS", "V", "MA", "XLF", "KRE"],
-    "healthcare":    ["UNH", "LLY", "ABBV", "JNJ", "MRK", "PFE", "AMGN"],
-    "industrials":   ["CAT", "DE", "HON", "GE", "BA", "RTX", "LMT"],
-    "sample_mixed":  ["NVDA", "AAPL", "GOOGL", "META", "JPM", "UNH", "CAT"],
+    "mega_cap_tech":          ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "ORCL", "TSLA", "AVGO", "AMD"],
+    "financials":             ["JPM", "BAC", "GS", "MS", "V", "MA", "BRK-B", "AXP", "C", "WFC"],
+    "healthcare":             ["UNH", "LLY", "ABBV", "JNJ", "MRK", "AMGN", "TMO", "ABT", "BMY", "ISRG"],
+    "industrials":            ["CAT", "GE", "GEV", "RTX", "HON", "DE", "NOC", "BA", "UPS", "LMT"],
+    "energy":                 ["XOM", "CVX", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "HAL"],
+    "consumer_discretionary": ["HD", "MCD", "BKNG", "TJX", "LOW", "SBUX", "NKE", "RCL", "GM", "ROST"],
+    "communication_services": ["NFLX", "TMUS", "DIS", "T", "VZ", "CMCSA", "DASH", "EA", "WBD", "SPOT"],
+    "sample_mixed":           ["NVDA", "AAPL", "GOOGL", "META", "JPM", "UNH", "CAT"],
+
 }
 
 
 if __name__ == "__main__":
+    all_symbols = list(dict.fromkeys(
+        sym for key, group in WATCHLISTS.items()
+        for sym in group
+        if key != "sample_mixed"
+    ))
     scanner = CANSLIMScanner()
-    results = scanner.scan(WATCHLISTS["sample_mixed"], min_passes=4)
+    results = scanner.scan(all_symbols, min_passes=4)
     scanner.print_results(results)
     scanner.export_csv(results)
