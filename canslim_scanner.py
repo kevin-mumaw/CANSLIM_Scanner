@@ -226,11 +226,13 @@ def check_S(history: pd.DataFrame) -> dict:
     return result
 
 
-def check_L(history: pd.DataFrame, spy_history: pd.DataFrame) -> dict:
+def check_L(history: pd.DataFrame, spy_history: pd.DataFrame,
+            universe_perfs: list = None) -> dict:
     """
     L - Leader or Laggard: RS Rating proxy (0-99).
-    Compares 12-month price performance vs S&P 500.
-    IBD formula weighted: 40% last 3m, 20% each prior 3m.
+    Uses IBD-style weighted performance formula:
+      40% last quarter + 20% each of prior 3 quarters.
+    RS Rating is a percentile rank within the scanned universe.
     """
     result = {"score": False, "value": None, "detail": "Insufficient data"}
     try:
@@ -238,14 +240,14 @@ def check_L(history: pd.DataFrame, spy_history: pd.DataFrame) -> dict:
             return result
 
         def weighted_perf(h):
-            c = h["Close"]
+            c = h["Close"].dropna()
             n = len(c)
-            if n < 252:
+            if n < 189:
                 return None
-            p3  = (c.iloc[-1]  / c.iloc[-63]  - 1) * 100 if n >= 63  else 0
-            p6  = (c.iloc[-63] / c.iloc[-126] - 1) * 100 if n >= 126 else 0
-            p9  = (c.iloc[-126]/ c.iloc[-189] - 1) * 100 if n >= 189 else 0
-            p12 = (c.iloc[-189]/ c.iloc[-252] - 1) * 100 if n >= 252 else 0
+            p3  = (c.iloc[-1]   / c.iloc[-63]  - 1) * 100 if n >= 63  else 0
+            p6  = (c.iloc[-63]  / c.iloc[-126] - 1) * 100 if n >= 126 else 0
+            p9  = (c.iloc[-126] / c.iloc[-189] - 1) * 100 if n >= 189 else 0
+            p12 = (c.iloc[-189] / c.iloc[-252] - 1) * 100 if n >= 252 else 0
             return 0.40 * p3 + 0.20 * p6 + 0.20 * p9 + 0.20 * p12
 
         stock_perf = weighted_perf(history)
@@ -254,12 +256,20 @@ def check_L(history: pd.DataFrame, spy_history: pd.DataFrame) -> dict:
         if stock_perf is None or spy_perf is None:
             return result
 
-        # RS = percentile proxy based on spread vs market
-        # Simplified 0-99 rating: 50 = matches market
-        spread = stock_perf - spy_perf
-        rs_rating = max(0, min(99, 50 + spread * 0.5))
+        if universe_perfs and len(universe_perfs) > 1:
+            valid = [p for p in universe_perfs if p is not None]
+            if valid:
+                below = sum(1 for p in valid if p < stock_perf)
+                rs_rating = round(below / len(valid) * 99)
+            else:
+                rs_rating = 50
+        else:
+            spread = stock_perf - spy_perf
+            rs_rating = max(1, min(99, 50 + spread * 1.5))
 
+        rs_rating = max(0, min(99, rs_rating))
         passed = rs_rating >= CONFIG["L_min_rs_rating"]
+
         result.update({
             "score": passed,
             "value": round(rs_rating, 1),
@@ -436,23 +446,65 @@ class CANSLIMScanner:
 
     def scan(self, symbols: list, min_passes: int = 4) -> list:
         """
-        Scan a list of symbols. Returns all results sorted by passes desc.
-
-        Args:
-            symbols:     List of ticker strings.
-            min_passes:  Minimum CAN SLIM criteria passed to include in output.
-                         Set to 0 to return all.
+        Scan a list of symbols. Two-pass approach:
+        Pass 1 — scan all symbols and collect weighted performances.
+        Pass 2 — assign percentile RS ratings across the full universe.
         """
         print(f"\n{'='*50}")
         print(f"  CAN SLIM Scanner — {len(symbols)} symbols")
         print(f"  Min passes required: {min_passes}/7")
         print(f"{'='*50}")
 
-        results = [self.scan_one(s.upper().strip()) for s in symbols]
-        results.sort(key=lambda x: x["passes"], reverse=True)
+        raw_results = []
+        histories   = {}
+
+        for s in symbols:
+            result = self.scan_one(s.upper().strip())
+            raw_results.append(result)
+            try:
+                h = yf.Ticker(s.upper()).history(period="2y")
+                if h.index.tz is not None:
+                    h.index = h.index.tz_localize(None)
+                h = h.dropna(subset=["Close"])
+                histories[s.upper()] = h
+            except Exception:
+                histories[s.upper()] = None
+
+        _, spy_history = self._get_spy_data()
+
+        def weighted_perf(h):
+            if h is None or h.empty:
+                return None
+            c = h["Close"].dropna()
+            n = len(c)
+            if n < 189:
+                return None
+            p3  = (c.iloc[-1]   / c.iloc[-63]  - 1) * 100 if n >= 63  else 0
+            p6  = (c.iloc[-63]  / c.iloc[-126] - 1) * 100 if n >= 126 else 0
+            p9  = (c.iloc[-126] / c.iloc[-189] - 1) * 100 if n >= 189 else 0
+            p12 = (c.iloc[-189] / c.iloc[-252] - 1) * 100 if n >= 252 else 0
+            return 0.40 * p3 + 0.20 * p6 + 0.20 * p9 + 0.20 * p12
+
+        universe_perfs = [weighted_perf(histories.get(s.upper())) for s in symbols]
+
+        for result in raw_results:
+            sym = result["symbol"]
+            h   = histories.get(sym)
+            if h is not None and not h.empty:
+                result["L"] = check_L(h, spy_history, universe_perfs)
+
+        for result in raw_results:
+            result["passes"] = sum(
+                result[k].get("score", False)
+                for k in ["C", "A", "N", "S", "L", "I", "M"]
+            )
+
+        raw_results.sort(key=lambda x: x["passes"], reverse=True)
 
         if min_passes > 0:
-            results = [r for r in results if r["passes"] >= min_passes]
+            results = [r for r in raw_results if r["passes"] >= min_passes]
+        else:
+            results = raw_results
 
         return results
 
