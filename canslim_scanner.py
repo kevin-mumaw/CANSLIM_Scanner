@@ -571,6 +571,118 @@ class CANSLIMScanner:
         print(f"\n  Exported {len(df)} rows → {filename}")
         return df
 
+    def export_html(self, results: list, filename: str = "canslim_report.html"):
+        """
+        Export results to a color-coded HTML report.
+        Opens in any browser — no server required.
+        """
+        from datetime import datetime as _dt
+
+        icons = {"C": "💰", "A": "📈", "N": "🆕", "S": "📊",
+                 "L": "⭐", "I": "🏭", "M": "🌐"}
+        labels = {
+            "C": "Current Earnings",
+            "A": "Annual Earnings",
+            "N": "Near 52-wk High",
+            "S": "Supply/Demand",
+            "L": "Leader/Laggard (RS)",
+            "I": "Institutional",
+            "M": "Market Direction",
+        }
+
+        def bar(passes):
+            filled = "█" * passes
+            empty  = "░" * (7 - passes)
+            return f'<span class="bar">{filled}<span class="empty">{empty}</span></span>'
+
+        def score_class(passes):
+            if passes == 7: return "score-7"
+            if passes >= 6: return "score-6"
+            if passes >= 5: return "score-5"
+            return "score-4"
+
+        cards = ""
+        for r in results:
+            sym    = r["symbol"]
+            passes = r["passes"]
+            rows   = ""
+            for k in ["C", "A", "N", "S", "L", "I", "M"]:
+                crit   = r.get(k, {})
+                passed = crit.get("score", False)
+                detail = crit.get("detail", "N/A")
+                check  = "✓" if passed else "✗"
+                row_cls = "pass" if passed else "fail"
+                rows += f"""
+                <tr class="{row_cls}">
+                    <td>{icons[k]} {k}</td>
+                    <td class="check">{check}</td>
+                    <td>{labels[k]}</td>
+                    <td class="detail">{detail}</td>
+                </tr>"""
+
+            cards += f"""
+            <div class="card {score_class(passes)}">
+                <div class="card-header">
+                    <span class="symbol">{sym}</span>
+                    <span class="passes">{passes}/7</span>
+                    {bar(passes)}
+                </div>
+                <table>{rows}</table>
+            </div>"""
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAN SLIM Report — {_dt.now().strftime('%Y-%m-%d')}</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f1117; color: #e0e0e0; padding: 20px; }}
+  h1 {{ color: #ffffff; margin-bottom: 4px; font-size: 1.4rem; }}
+  .subtitle {{ color: #888; font-size: 0.85rem; margin-bottom: 24px; }}
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+           gap: 16px; }}
+  .card {{ background: #1a1d2e; border-radius: 8px; overflow: hidden;
+           border-left: 4px solid #444; }}
+  .score-7 {{ border-left-color: #00c853; }}
+  .score-6 {{ border-left-color: #64dd17; }}
+  .score-5 {{ border-left-color: #ffab00; }}
+  .score-4 {{ border-left-color: #ff6d00; }}
+  .card-header {{ display: flex; align-items: center; gap: 12px;
+                  padding: 12px 16px; background: #22263a; }}
+  .symbol {{ font-size: 1.1rem; font-weight: 700; color: #ffffff; min-width: 60px; }}
+  .passes {{ font-size: 0.9rem; color: #aaa; min-width: 30px; }}
+  .bar {{ font-family: monospace; font-size: 1rem; color: #00c853; letter-spacing: 1px; }}
+  .empty {{ color: #333; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  tr {{ border-bottom: 1px solid #2a2d3e; }}
+  tr:last-child {{ border-bottom: none; }}
+  td {{ padding: 7px 10px; font-size: 0.78rem; vertical-align: top; }}
+  td:first-child {{ width: 48px; color: #aaa; white-space: nowrap; }}
+  .check {{ width: 20px; font-weight: bold; text-align: center; }}
+  tr.pass .check {{ color: #00c853; }}
+  tr.fail .check {{ color: #ff5252; }}
+  td:nth-child(3) {{ color: #ccc; width: 140px; }}
+  .detail {{ color: #888; }}
+  tr.pass {{ background: rgba(0,200,83,0.03); }}
+  tr.fail {{ background: rgba(255,82,82,0.03); }}
+</style>
+</head>
+<body>
+<h1>📊 CAN SLIM Scanner</h1>
+<p class="subtitle">Report generated {_dt.now().strftime('%Y-%m-%d %H:%M')} &nbsp;|&nbsp;
+{len(results)} symbol(s) shown &nbsp;|&nbsp; Min 4/7 criteria</p>
+<div class="grid">{cards}</div>
+</body>
+</html>"""
+
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(html)
+        print(f"  Report → {filename}  (open in any browser)")
+        return filename
+
 
 # ─────────────────────────────────────────────
 # Watchlist presets
@@ -599,3 +711,4 @@ if __name__ == "__main__":
     results = scanner.scan(all_symbols, min_passes=4)
     scanner.print_results(results)
     scanner.export_csv(results)
+    scanner.export_html(results)
