@@ -404,6 +404,7 @@ class CANSLIMScanner:
 
         output = {
             "symbol":  symbol,
+            "name":    symbol,   # updated below after ticker.info is fetched
             "scanned": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "C": {}, "A": {}, "N": {}, "S": {}, "L": {}, "I": {}, "M": {},
             "passes": 0,
@@ -413,6 +414,10 @@ class CANSLIMScanner:
 
         try:
             ticker  = yf.Ticker(symbol)
+            try:
+                output["name"] = ticker.info.get("longName", symbol) or symbol
+            except Exception:
+                pass
             history = ticker.history(period="2y")
 
             if history.empty:
@@ -521,11 +526,14 @@ class CANSLIMScanner:
         print(f"{'='*60}")
 
         for r in results:
-            sym = r["symbol"]
+            sym    = r["symbol"]
+            name   = r.get("name", sym)
             passes = r["passes"]
-            bar = "█" * passes + "░" * (7 - passes)
+            bar    = "█" * passes + "░" * (7 - passes)
+            label  = f"{sym} — {name}" if name and name != sym else sym
 
-            print(f"\n  {sym:8s}  [{bar}]  {passes}/7 criteria met")
+            print(f"\n  {label}")
+            print(f"  {'':8s}  [{bar}]  {passes}/7 criteria met")
             if r.get("error"):
                 print(f"    ⚠ Error: {r['error']}")
                 continue
@@ -549,6 +557,7 @@ class CANSLIMScanner:
         for r in results:
             row = {
                 "Symbol":  r["symbol"],
+                "Name":    r.get("name", r["symbol"]),
                 "Passes":  r["passes"],
                 "Scanned": r["scanned"],
                 "Error":   r.get("error", ""),
@@ -604,6 +613,7 @@ class CANSLIMScanner:
         cards = ""
         for r in results:
             sym    = r["symbol"]
+            name   = r.get("name", sym)
             passes = r["passes"]
             rows   = ""
             for k in ["C", "A", "N", "S", "L", "I", "M"]:
@@ -623,7 +633,10 @@ class CANSLIMScanner:
             cards += f"""
             <div class="card {score_class(passes)}">
                 <div class="card-header">
-                    <span class="symbol">{sym}</span>
+                    <div class="symbol-block">
+                        <span class="symbol">{sym}</span>
+                        <span class="company-name">{name}</span>
+                    </div>
                     <span class="passes">{passes}/7</span>
                     {bar(passes)}
                 </div>
@@ -652,7 +665,9 @@ class CANSLIMScanner:
   .score-4 {{ border-left-color: #ff6d00; }}
   .card-header {{ display: flex; align-items: center; gap: 12px;
                   padding: 12px 16px; background: #22263a; }}
-  .symbol {{ font-size: 1.1rem; font-weight: 700; color: #ffffff; min-width: 60px; }}
+  .symbol-block {{ display: flex; flex-direction: column; min-width: 180px; }}
+  .symbol {{ font-size: 1.1rem; font-weight: 700; color: #ffffff; }}
+  .company-name {{ font-size: 0.75rem; color: #8899aa; margin-top: 1px; }}
   .passes {{ font-size: 0.9rem; color: #aaa; min-width: 30px; }}
   .bar {{ font-family: monospace; font-size: 1rem; color: #00c853; letter-spacing: 1px; }}
   .empty {{ color: #333; }}
